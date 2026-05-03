@@ -31,6 +31,7 @@ video { width:100%; border-radius:8px; }
 
 .hidden { display:none; }
 .missing { color:red; }
+.meta { font-size:12px; color:#666; }
 </style>
 </head>
 
@@ -40,13 +41,9 @@ video { width:100%; border-radius:8px; }
 
 <div class="container">
 
-<!-- 棚一覧 -->
 <div id="shelfView"></div>
-
-<!-- 書籍一覧 -->
 <div id="bookView" class="hidden"></div>
 
-<!-- スキャン -->
 <div id="scanView" class="hidden">
   <h3 id="scanShelf"></h3>
   <div>登録数: <span id="scanCount">0</span></div>
@@ -63,43 +60,29 @@ video { width:100%; border-radius:8px; }
 </div>
 
 <script>
-const hints = new Map();
-hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-  ZXing.BarcodeFormat.CODE_39,
-  ZXing.BarcodeFormat.CODE_128
-]);
-const codeReader = new ZXing.BrowserMultiFormatReader(hints);
+const codeReader = new ZXing.BrowserMultiFormatReader();
 
-const video = document.getElementById("video");
-const scanStatus = document.getElementById("scanStatus");
-const scanResult = document.getElementById("scanResult");
-const registerBtn = document.getElementById("registerBtn");
-const skipBtn = document.getElementById("skipBtn");
-const scanCountEl = document.getElementById("scanCount");
+/* ===== 日付ユーティリティ ===== */
+function todayStr() {
+  return new Date().toISOString().slice(0,10); // YYYY-MM-DD
+}
 
-const shelfView = document.getElementById("shelfView");
-const bookView = document.getElementById("bookView");
-const scanView = document.getElementById("scanView");
-const scanShelf = document.getElementById("scanShelf");
-
-/* ========================
- データ
-======================== */
+/* ===== データ ===== */
 let BOOKS = {};
 let SHELVES = {};
+
 let inventory = {}; 
-// { code: { lastSeenAt, status } }
+// { code: { lastSeenDate: "YYYY-MM-DD" } }
 
 let shelfLastScan = {}; 
-// { shelf: timestamp }
+// { shelf: "YYYY-MM-DD" }
+
+let scanResults = new Set();
 
 let currentShelf = null;
 let currentCode = null;
-let scanCount = 0;
 
-/* ========================
- CSV読み込み
-======================== */
+/* ===== CSV ===== */
 async function loadCSV(){
   const res = await fetch('./books.csv');
   const text = await res.text();
@@ -117,37 +100,30 @@ async function loadCSV(){
   return books;
 }
 
-/* ========================
- 初期化
-======================== */
+/* ===== 初期化 ===== */
 async function init(){
   BOOKS = await loadCSV();
   renderShelves();
 }
 
-/* ========================
- 棚一覧
-======================== */
+/* ===== 棚一覧 ===== */
 function renderShelves(){
   const v = document.getElementById("shelfView");
   v.innerHTML = "<h3>棚一覧</h3>";
 
   Object.keys(SHELVES).forEach(s=>{
-    const last = shelfLastScan[s];
-    const date = last ? new Date(last).toLocaleString() : "未実施";
+    const d = shelfLastScan[s] || "未実施";
 
     v.innerHTML += `
       <div class="card">
         <b>${s}</b><br>
-        最終棚卸し: ${date}
+        最終棚卸し日: ${d}
         <button onclick="openShelf('${s}')">開く</button>
       </div>`;
   });
 }
 
-/* ========================
- 書籍一覧
-======================== */
+/* ===== 書籍一覧 ===== */
 function openShelf(s){
   currentShelf = s;
 
@@ -155,28 +131,31 @@ function openShelf(s){
   const v = bookView;
   v.classList.remove("hidden");
 
+  const lastScan = shelfLastScan[s];
+
   v.innerHTML = `
     <h3>${s}</h3>
     <button onclick="startScan()">棚卸し開始</button>
     <button onclick="backToShelves()">戻る</button>
   `;
 
-  const lastScan = shelfLastScan[s];
-
   SHELVES[s].forEach(code=>{
     const b = BOOKS[code];
-    let cls = "";
+    const rec = inventory[code];
 
+    let cls = "";
     if(lastScan){
-      const rec = inventory[code];
-      if(!rec || rec.lastSeenAt < lastScan){
+      if(!rec || rec.lastSeenDate !== lastScan){
         cls = "missing";
       }
     }
 
+    const lastSeen = rec?.lastSeenDate || "-";
+
     v.innerHTML += `
       <div class="card ${cls}">
         ${code}<br>${b.title}
+        <div class="meta">最終確認: ${lastSeen}</div>
       </div>`;
   });
 }
@@ -187,12 +166,10 @@ function backToShelves(){
   renderShelves();
 }
 
-/* ========================
- スキャン
-======================== */
+/* ===== スキャン ===== */
 function startScan(){
-  scanCount = 0;
-  scanCountEl.textContent = 0;
+  scanResults.clear();
+  scanCount.textContent = 0;
 
   bookView.classList.add("hidden");
   scanView.classList.remove("hidden");
@@ -205,7 +182,6 @@ function startScan(){
 function scanLoop(){
   scanStatus.textContent = "読み取り中";
   scanResult.innerHTML = "";
-
   registerBtn.disabled = true;
 
   codeReader.decodeFromVideoDevice(null, video, (result)=>{
@@ -225,44 +201,44 @@ function handleScan(code){
   if(b){
     scanResult.innerHTML = `${b.title}<br>${b.location}`;
     registerBtn.disabled = false;
-  }else{
+  } else {
     scanResult.innerHTML = `<span style="color:red">未登録</span>`;
   }
 }
 
-/* ========================
- 操作
-======================== */
+/* ===== 操作 ===== */
 registerBtn.onclick = ()=>{
   if(currentCode && BOOKS[currentCode]){
-    inventory[currentCode] = {
-      status: "ある",
-      lastSeenAt: Date.now()
-    };
-    scanCount++;
-    scanCountEl.textContent = scanCount;
+    scanResults.add(currentCode);
+    scanCount.textContent = scanResults.size;
   }
   scanLoop();
 };
 
 skipBtn.onclick = ()=> scanLoop();
 
+function finalizeScan(){
+  const today = todayStr();
+
+  shelfLastScan[currentShelf] = today;
+
+  scanResults.forEach(code=>{
+    inventory[code] = {
+      lastSeenDate: today
+    };
+  });
+}
+
 function backToBooks(){
   codeReader.reset();
+
+  finalizeScan();
+
   scanView.classList.add("hidden");
   openShelf(currentShelf);
 }
 
-/* ========================
- 棚終了時に日時記録
-======================== */
-window.addEventListener("beforeunload", ()=>{
-  if(currentShelf){
-    shelfLastScan[currentShelf] = Date.now();
-  }
-});
-
-/* ======================== */
+/* ===== */
 init();
 </script>
 
