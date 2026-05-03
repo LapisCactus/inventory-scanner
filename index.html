@@ -2,223 +2,268 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>棚卸しスキャナ（CSV対応）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棚卸しシステム</title>
 <script src="https://unpkg.com/@zxing/library@latest"></script>
 
 <style>
-  body { font-family: sans-serif; text-align: center; padding: 16px; }
-  video { width: 100%; max-width: 400px; border: 1px solid #ccc; }
-  #resultBox { margin: 16px 0; }
-  button { padding: 10px 16px; margin: 8px; font-size: 16px; }
+body { margin:0; font-family:sans-serif; background:#f5f5f5; }
+header { background:#333; color:#fff; padding:12px; text-align:center; }
 
-  #modal {
-    position: fixed; top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.6);
-    display: none;
-  }
-  #modalContent {
-    background: white;
-    margin: 10% auto;
-    padding: 16px;
-    width: 90%;
-    max-width: 400px;
-    text-align: left;
-  }
-  .found { color: green; }
-  .unknown { color: gray; }
+.container { padding:12px; }
+
+.card {
+  background:#fff;
+  margin:8px 0;
+  padding:12px;
+  border-radius:8px;
+  box-shadow:0 2px 4px rgba(0,0,0,0.1);
+}
+
+button {
+  width:100%;
+  padding:14px;
+  margin-top:8px;
+  font-size:16px;
+}
+
+video { width:100%; border-radius:8px; }
+
+.hidden { display:none; }
+.missing { color:red; }
 </style>
 </head>
 
 <body>
 
-<h2>棚卸しスキャナ</h2>
+<header>棚卸しシステム</header>
 
-<div id="loading">マスタ読み込み中...</div>
+<div class="container">
 
-<video id="video" style="display:none;"></video>
+<!-- 棚一覧 -->
+<div id="shelfView"></div>
 
-<div id="status"></div>
-<div id="resultBox"></div>
+<!-- 書籍一覧 -->
+<div id="bookView" class="hidden"></div>
 
-<div>
-  <button id="registerBtn" style="display:none;">登録</button>
-  <button id="skipBtn" style="display:none;">登録せず次へ</button>
-  <button id="showStatusBtn" style="display:none;">棚卸し状況</button>
+<!-- スキャン -->
+<div id="scanView" class="hidden">
+  <h3 id="scanShelf"></h3>
+  <div>登録数: <span id="scanCount">0</span></div>
+
+  <video id="video"></video>
+  <div id="scanStatus">読み取り中</div>
+  <div id="scanResult"></div>
+
+  <button id="registerBtn">登録</button>
+  <button id="skipBtn">スキップ</button>
+  <button onclick="backToBooks()">戻る</button>
 </div>
 
-<!-- モーダル -->
-<div id="modal">
-  <div id="modalContent">
-    <h3>棚卸し状況</h3>
-    <div id="inventoryList"></div>
-    <button onclick="closeModal()">✕ 閉じる</button>
-  </div>
 </div>
 
 <script>
-/* ========================
-   フォールバックデータ
-======================== */
-const FALLBACK_BOOKS = {
-  "C000": { title: "サンプル本", location: "不明" }
-};
-
-/* ========================
-   グローバル状態
-======================== */
-let BOOKS = {};
-let inventoryState = {};
-
-const codeReader = new ZXing.BrowserMultiFormatReader();
+const hints = new Map();
+hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+  ZXing.BarcodeFormat.CODE_39,
+  ZXing.BarcodeFormat.CODE_128
+]);
+const codeReader = new ZXing.BrowserMultiFormatReader(hints);
 
 const video = document.getElementById("video");
-const status = document.getElementById("status");
-const resultBox = document.getElementById("resultBox");
-const loading = document.getElementById("loading");
-
+const scanStatus = document.getElementById("scanStatus");
+const scanResult = document.getElementById("scanResult");
 const registerBtn = document.getElementById("registerBtn");
 const skipBtn = document.getElementById("skipBtn");
-const showStatusBtn = document.getElementById("showStatusBtn");
+const scanCountEl = document.getElementById("scanCount");
 
-let currentCode = null;
+const shelfView = document.getElementById("shelfView");
+const bookView = document.getElementById("bookView");
+const scanView = document.getElementById("scanView");
+const scanShelf = document.getElementById("scanShelf");
 
 /* ========================
-   CSV読み込み
+ データ
 ======================== */
-async function loadCSV() {
-  const res = await fetch('./books.csv');
-  if (!res.ok) throw new Error("fetch失敗");
+let BOOKS = {};
+let SHELVES = {};
+let inventory = {}; 
+// { code: { lastSeenAt, status } }
 
+let shelfLastScan = {}; 
+// { shelf: timestamp }
+
+let currentShelf = null;
+let currentCode = null;
+let scanCount = 0;
+
+/* ========================
+ CSV読み込み
+======================== */
+async function loadCSV(){
+  const res = await fetch('./books.csv');
   const text = await res.text();
   const lines = text.trim().split('\n');
 
   const books = {};
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',');
-
-    const code = cols[0]?.trim();
-    const title = cols[1]?.trim();
-    const location = cols[2]?.trim();
-
-    if (!code) continue;
-
+  for(let i=1;i<lines.length;i++){
+    const [code,title,location] = lines[i].split(',');
     books[code] = { title, location };
-  }
 
+    if(!SHELVES[location]) SHELVES[location]=[];
+    SHELVES[location].push(code);
+  }
   return books;
 }
 
 /* ========================
-   初期化
+ 初期化
 ======================== */
-async function init() {
-  try {
-    BOOKS = await loadCSV();
-  } catch (e) {
-    alert("CSV読み込み失敗。フォールバックで起動します");
-    BOOKS = FALLBACK_BOOKS;
-  }
-
-  // 状態初期化
-  Object.keys(BOOKS).forEach(code => {
-    inventoryState[code] = "未調査";
-  });
-
-  loading.style.display = "none";
-  video.style.display = "block";
-
-  startScan();
+async function init(){
+  BOOKS = await loadCSV();
+  renderShelves();
 }
 
 /* ========================
-   スキャン
+ 棚一覧
 ======================== */
-function startScan() {
-  status.textContent = "読み取り中...";
-  resultBox.innerHTML = "";
-  currentCode = null;
+function renderShelves(){
+  const v = document.getElementById("shelfView");
+  v.innerHTML = "<h3>棚一覧</h3>";
 
-  registerBtn.style.display = "none";
-  skipBtn.style.display = "none";
-  showStatusBtn.style.display = "none";
+  Object.keys(SHELVES).forEach(s=>{
+    const last = shelfLastScan[s];
+    const date = last ? new Date(last).toLocaleString() : "未実施";
 
-  codeReader.decodeFromVideoDevice(null, video, (result, err) => {
-    if (result) {
+    v.innerHTML += `
+      <div class="card">
+        <b>${s}</b><br>
+        最終棚卸し: ${date}
+        <button onclick="openShelf('${s}')">開く</button>
+      </div>`;
+  });
+}
+
+/* ========================
+ 書籍一覧
+======================== */
+function openShelf(s){
+  currentShelf = s;
+
+  shelfView.classList.add("hidden");
+  const v = bookView;
+  v.classList.remove("hidden");
+
+  v.innerHTML = `
+    <h3>${s}</h3>
+    <button onclick="startScan()">棚卸し開始</button>
+    <button onclick="backToShelves()">戻る</button>
+  `;
+
+  const lastScan = shelfLastScan[s];
+
+  SHELVES[s].forEach(code=>{
+    const b = BOOKS[code];
+    let cls = "";
+
+    if(lastScan){
+      const rec = inventory[code];
+      if(!rec || rec.lastSeenAt < lastScan){
+        cls = "missing";
+      }
+    }
+
+    v.innerHTML += `
+      <div class="card ${cls}">
+        ${code}<br>${b.title}
+      </div>`;
+  });
+}
+
+function backToShelves(){
+  bookView.classList.add("hidden");
+  shelfView.classList.remove("hidden");
+  renderShelves();
+}
+
+/* ========================
+ スキャン
+======================== */
+function startScan(){
+  scanCount = 0;
+  scanCountEl.textContent = 0;
+
+  bookView.classList.add("hidden");
+  scanView.classList.remove("hidden");
+
+  scanShelf.textContent = currentShelf;
+
+  scanLoop();
+}
+
+function scanLoop(){
+  scanStatus.textContent = "読み取り中";
+  scanResult.innerHTML = "";
+
+  registerBtn.disabled = true;
+
+  codeReader.decodeFromVideoDevice(null, video, (result)=>{
+    if(result){
       codeReader.reset();
       handleScan(result.getText());
     }
   });
 }
 
-function handleScan(code) {
+function handleScan(code){
   currentCode = code;
+  const b = BOOKS[code];
 
-  const book = BOOKS[code];
+  scanStatus.textContent = "読み取り完了";
 
-  status.textContent = "読み取り完了";
-
-  if (book) {
-    resultBox.innerHTML = `
-      <div><b>コード:</b> ${code}</div>
-      <div><b>書名:</b> ${book.title}</div>
-      <div><b>所在:</b> ${book.location}</div>
-    `;
-  } else {
-    resultBox.innerHTML = `
-      <div><b>コード:</b> ${code}</div>
-      <div style="color:red;">未登録のコード</div>
-    `;
+  if(b){
+    scanResult.innerHTML = `${b.title}<br>${b.location}`;
+    registerBtn.disabled = false;
+  }else{
+    scanResult.innerHTML = `<span style="color:red">未登録</span>`;
   }
-
-  registerBtn.style.display = "inline-block";
-  skipBtn.style.display = "inline-block";
-  showStatusBtn.style.display = "inline-block";
 }
 
 /* ========================
-   ボタン処理
+ 操作
 ======================== */
-registerBtn.addEventListener("click", () => {
-  if (currentCode && BOOKS[currentCode]) {
-    inventoryState[currentCode] = "ある";
+registerBtn.onclick = ()=>{
+  if(currentCode && BOOKS[currentCode]){
+    inventory[currentCode] = {
+      status: "ある",
+      lastSeenAt: Date.now()
+    };
+    scanCount++;
+    scanCountEl.textContent = scanCount;
   }
-  startScan();
-});
+  scanLoop();
+};
 
-skipBtn.addEventListener("click", () => {
-  startScan();
-});
+skipBtn.onclick = ()=> scanLoop();
 
-showStatusBtn.addEventListener("click", () => {
-  const list = document.getElementById("inventoryList");
-  list.innerHTML = "";
-
-  Object.keys(BOOKS).forEach(code => {
-    const b = BOOKS[code];
-    const state = inventoryState[code];
-    const cls = state === "ある" ? "found" : "unknown";
-
-    list.innerHTML += `
-      <div class="${cls}">
-        ${code} : ${b.title} (${b.location}) → ${state}
-      </div>
-    `;
-  });
-
-  document.getElementById("modal").style.display = "block";
-});
-
-function closeModal() {
-  document.getElementById("modal").style.display = "none";
+function backToBooks(){
+  codeReader.reset();
+  scanView.classList.add("hidden");
+  openShelf(currentShelf);
 }
 
 /* ========================
-   起動
+ 棚終了時に日時記録
 ======================== */
+window.addEventListener("beforeunload", ()=>{
+  if(currentShelf){
+    shelfLastScan[currentShelf] = Date.now();
+  }
+});
+
+/* ======================== */
 init();
-
 </script>
 
 </body>
