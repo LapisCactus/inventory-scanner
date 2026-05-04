@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>スキャン</title>
+<script src="https://unpkg.com/@zxing/library@latest"></script>
+
+<style>
+body { margin:0; font-family:sans-serif; background:#f5f5f5; }
+header { background:#333; color:#fff; padding:12px; text-align:center; }
+
+.layout {
+  display:flex;
+  height:calc(100vh - 56px);
+}
+
+.left, .right {
+  width:50%;
+  padding:8px;
+  box-sizing:border-box;
+}
+
+video { width:100%; border-radius:8px; }
+
+.list {
+  background:#fff;
+  border-radius:8px;
+  padding:8px;
+  height:100%;
+  overflow:auto;
+}
+
+.item { border-bottom:1px solid #eee; padding:6px 0; }
+.meta { font-size:12px; color:#666; }
+
+.fab {
+  position:fixed;
+  bottom:16px;
+  right:16px;
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  background:#1976d2;
+  color:#fff;
+  font-size:24px;
+  border:none;
+  box-shadow:0 3px 6px rgba(0,0,0,0.3);
+}
+
+.toast {
+  position:fixed;
+  bottom:80px;
+  left:50%;
+  transform:translateX(-50%);
+  background:#333;
+  color:#fff;
+  padding:10px 16px;
+  border-radius:20px;
+  opacity:0;
+  transition:opacity 0.3s;
+}
+.toast.show { opacity:1; }
+</style>
+</head>
+
+<body>
+
+<header id="title">スキャン</header>
+
+<div class="layout">
+  <!-- 左：カメラ -->
+  <div class="left">
+    <video id="video"></video>
+  </div>
+
+  <!-- 右：リスト -->
+  <div class="right">
+    <div class="list">
+      <div>件数: <span id="count">0</span></div>
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+
+<button class="fab" id="doneBtn">✓</button>
+<div id="toast" class="toast"></div>
+
+<script src="./common.js"></script>
+<script>
+(async function(){
+
+  const shelf = getQuery('shelf');
+  if (!shelf) return alert('shelf未指定');
+  document.getElementById('title').textContent = `スキャン：${shelf}`;
+
+  const { BOOKS } = await loadBooksCSV();
+  const inventory = loadJSON(LS_KEYS.INVENTORY, {});
+  const shelfLast = loadJSON(LS_KEYS.SHELF_LAST, {});
+
+  const video = document.getElementById('video');
+  const listEl = document.getElementById('list');
+  const countEl = document.getElementById('count');
+  const toastEl = document.getElementById('toast');
+
+  // ZXing（Code39/128限定）
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_128
+  ]);
+  const reader = new ZXing.BrowserMultiFormatReader(hints);
+
+  let scanResults = new Map(); // code -> book
+
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(()=>toastEl.classList.remove('show'), 1200);
+  }
+
+  function renderList(){
+    listEl.innerHTML = '';
+    scanResults.forEach((b, code)=>{
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.innerHTML = `<b>${code}</b><br>${b.title}`;
+      listEl.appendChild(div);
+    });
+    countEl.textContent = scanResults.size;
+  }
+
+  function loop(){
+    reader.decodeFromVideoDevice(null, video, (res)=>{
+      if(res){
+        reader.reset();
+        handle(res.getText());
+      }
+    });
+  }
+
+  function handle(code){
+    const b = BOOKS[code];
+
+    if(!b){
+      showToast('未登録コード');
+      return loop();
+    }
+
+    if(scanResults.has(code)){
+      showToast('読み取り済み');
+    } else {
+      scanResults.set(code, b);
+      renderList();
+      showToast(`${b.title}`);
+    }
+
+    loop();
+  }
+
+  // 棚卸し確定
+  document.getElementById('doneBtn').onclick = ()=>{
+    const today = todayStr(); // ローカル日付
+
+    shelfLast[shelf] = today;
+
+    scanResults.forEach((b, code)=>{
+      inventory[code] = { lastSeenDate: today };
+    });
+
+    saveJSON(LS_KEYS.INVENTORY, inventory);
+    saveJSON(LS_KEYS.SHELF_LAST, shelfLast);
+
+    reader.reset();
+    goTo('books.html', { shelf });
+  };
+
+  loop();
+
+})();
+</script>
+
+</body>
+</html>

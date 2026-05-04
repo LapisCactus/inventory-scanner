@@ -1,246 +1,108 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>棚卸しシステム</title>
-<script src="https://unpkg.com/@zxing/library@latest"></script>
-
-<style>
-body { margin:0; font-family:sans-serif; background:#f5f5f5; }
-header { background:#333; color:#fff; padding:12px; text-align:center; }
-
-.container { padding:12px; }
-
-.card {
-  background:#fff;
-  margin:8px 0;
-  padding:12px;
-  border-radius:8px;
-  box-shadow:0 2px 4px rgba(0,0,0,0.1);
-}
-
-button {
-  width:100%;
-  padding:14px;
-  margin-top:8px;
-  font-size:16px;
-}
-
-video { width:100%; border-radius:8px; }
-
-.hidden { display:none; }
-.missing { color:red; }
-.meta { font-size:12px; color:#666; }
-</style>
+  <meta charset="UTF-8">
+  <title>バーコード棚卸しシステム</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      background-color: #f7f9fc;
+      color: #333;
+    }
+    header {
+      background: #2c3e50;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+    main {
+      max-width: 800px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 18px;
+      background: #3498db;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+    .button.secondary {
+      background: #95a5a6;
+    }
+    footer {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      padding: 20px;
+    }
+  </style>
 </head>
-
 <body>
 
-<header>棚卸しシステム</header>
+<header>
+  <h1>バーコード棚卸しシステム</h1>
+  <p>シンプルに、正確に。本の所在を管理</p>
+</header>
 
-<div class="container">
+<main>
 
-<div id="shelfView"></div>
-<div id="bookView" class="hidden"></div>
+  <div class="card">
+    <h2>このシステムの目的</h2>
+    <p>
+      図書や物品に付与されたバーコードを使い、棚ごとの所在を簡単に記録・管理するためのシステムです。
+    </p>
+    <ul>
+      <li>どの棚に何があるかを明確にする</li>
+      <li>棚卸し作業を効率化する</li>
+      <li>CSVベースでシンプルにデータ管理</li>
+    </ul>
+  </div>
 
-<div id="scanView" class="hidden">
-  <h3 id="scanShelf"></h3>
-  <div>登録数: <span id="scanCount">0</span></div>
+  <div class="card">
+    <h2>使い方（基本フロー）</h2>
+    <ol>
+      <li>棚を選択する</li>
+      <li>バーコードをスキャンする</li>
+      <li>データを保存する</li>
+    </ol>
+    <p>
+      スキャン結果はCSVとして管理され、後から確認・編集できます。
+    </p>
+  </div>
 
-  <video id="video"></video>
-  <div id="scanStatus">読み取り中</div>
-  <div id="scanResult"></div>
+  <div class="card">
+    <h2>メニュー</h2>
+    <div class="buttons">
+      <a href="shelf.html" class="button">棚一覧へ</a>
+    </div>
+  </div>
 
-  <button id="registerBtn">登録</button>
-  <button id="skipBtn">スキップ</button>
-  <button onclick="backToBooks()">戻る</button>
-</div>
+</main>
 
-</div>
-
-<script>
-const codeReader = new ZXing.BrowserMultiFormatReader();
-
-/* ===== 日付ユーティリティ ===== */
-function todayStr() {
-  return new Date().toISOString().slice(0,10); // YYYY-MM-DD
-}
-
-/* ===== データ ===== */
-let BOOKS = {};
-let SHELVES = {};
-
-let inventory = {}; 
-// { code: { lastSeenDate: "YYYY-MM-DD" } }
-
-let shelfLastScan = {}; 
-// { shelf: "YYYY-MM-DD" }
-
-let scanResults = new Set();
-
-let currentShelf = null;
-let currentCode = null;
-
-/* ===== CSV ===== */
-async function loadCSV(){
-  const res = await fetch('./books.csv');
-  const text = await res.text();
-  const lines = text.trim().split('\n');
-
-  const books = {};
-
-  for(let i=1;i<lines.length;i++){
-    const [code,title,location] = lines[i].split(',');
-    books[code] = { title, location };
-
-    if(!SHELVES[location]) SHELVES[location]=[];
-    SHELVES[location].push(code);
-  }
-  return books;
-}
-
-/* ===== 初期化 ===== */
-async function init(){
-  BOOKS = await loadCSV();
-  renderShelves();
-}
-
-/* ===== 棚一覧 ===== */
-function renderShelves(){
-  const v = document.getElementById("shelfView");
-  v.innerHTML = "<h3>棚一覧</h3>";
-
-  Object.keys(SHELVES).forEach(s=>{
-    const d = shelfLastScan[s] || "未実施";
-
-    v.innerHTML += `
-      <div class="card">
-        <b>${s}</b><br>
-        最終棚卸し日: ${d}
-        <button onclick="openShelf('${s}')">開く</button>
-      </div>`;
-  });
-}
-
-/* ===== 書籍一覧 ===== */
-function openShelf(s){
-  currentShelf = s;
-
-  shelfView.classList.add("hidden");
-  const v = bookView;
-  v.classList.remove("hidden");
-
-  const lastScan = shelfLastScan[s];
-
-  v.innerHTML = `
-    <h3>${s}</h3>
-    <button onclick="startScan()">棚卸し開始</button>
-    <button onclick="backToShelves()">戻る</button>
-  `;
-
-  SHELVES[s].forEach(code=>{
-    const b = BOOKS[code];
-    const rec = inventory[code];
-
-    let cls = "";
-    if(lastScan){
-      if(!rec || rec.lastSeenDate !== lastScan){
-        cls = "missing";
-      }
-    }
-
-    const lastSeen = rec?.lastSeenDate || "-";
-
-    v.innerHTML += `
-      <div class="card ${cls}">
-        ${code}<br>${b.title}
-        <div class="meta">最終確認: ${lastSeen}</div>
-      </div>`;
-  });
-}
-
-function backToShelves(){
-  bookView.classList.add("hidden");
-  shelfView.classList.remove("hidden");
-  renderShelves();
-}
-
-/* ===== スキャン ===== */
-function startScan(){
-  scanResults.clear();
-  scanCount.textContent = 0;
-
-  bookView.classList.add("hidden");
-  scanView.classList.remove("hidden");
-
-  scanShelf.textContent = currentShelf;
-
-  scanLoop();
-}
-
-function scanLoop(){
-  scanStatus.textContent = "読み取り中";
-  scanResult.innerHTML = "";
-  registerBtn.disabled = true;
-
-  codeReader.decodeFromVideoDevice(null, video, (result)=>{
-    if(result){
-      codeReader.reset();
-      handleScan(result.getText());
-    }
-  });
-}
-
-function handleScan(code){
-  currentCode = code;
-  const b = BOOKS[code];
-
-  scanStatus.textContent = "読み取り完了";
-
-  if(b){
-    scanResult.innerHTML = `${b.title}<br>${b.location}`;
-    registerBtn.disabled = false;
-  } else {
-    scanResult.innerHTML = `<span style="color:red">未登録</span>`;
-  }
-}
-
-/* ===== 操作 ===== */
-registerBtn.onclick = ()=>{
-  if(currentCode && BOOKS[currentCode]){
-    scanResults.add(currentCode);
-    scanCount.textContent = scanResults.size;
-  }
-  scanLoop();
-};
-
-skipBtn.onclick = ()=> scanLoop();
-
-function finalizeScan(){
-  const today = todayStr();
-
-  shelfLastScan[currentShelf] = today;
-
-  scanResults.forEach(code=>{
-    inventory[code] = {
-      lastSeenDate: today
-    };
-  });
-}
-
-function backToBooks(){
-  codeReader.reset();
-
-  finalizeScan();
-
-  scanView.classList.add("hidden");
-  openShelf(currentShelf);
-}
-
-/* ===== */
-init();
-</script>
+<footer>
+  © 2026 Inventory System
+</footer>
 
 </body>
 </html>

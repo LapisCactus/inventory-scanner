@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>書籍一覧</title>
+<style>
+body { margin:0; font-family:sans-serif; background:#f5f5f5; }
+header { background:#333; color:#fff; padding:12px; text-align:center; }
+.container { padding:12px; }
+.card { background:#fff; margin:8px 0; padding:12px; border-radius:8px; }
+button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
+.meta { font-size:12px; color:#666; }
+.missing { color:red; }
+</style>
+</head>
+<body>
+<header id="title">書籍一覧</header>
+<div class="container" id="root">読み込み中...</div>
+
+<script src="./common.js"></script>
+<script id="books_js_001">
+(async function init(){
+  const shelf = getQuery('shelf');
+  if (!shelf) { alert('shelf未指定'); return; }
+
+  const { BOOKS, SHELVES } = await loadBooksCSV();
+  const inventory = loadJSON(LS_KEYS.INVENTORY, {});
+  const shelfLast = loadJSON(LS_KEYS.SHELF_LAST, {});
+
+  document.getElementById('title').textContent = `書籍一覧：${shelf}`;
+
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <button id="scanBtn">棚卸し開始</button>
+    <button id="backBtn">戻る</button>
+  `;
+
+  document.getElementById('scanBtn').onclick = () => goTo('scan.html', { shelf });
+  document.getElementById('backBtn').onclick = () => goTo('shelf.html');
+
+  (SHELVES[shelf] || []).forEach(code => {
+    const b = BOOKS[code];
+    const rec = inventory[code];
+    const missing = isMissingForShelf(code, shelf, inventory, shelfLast);
+    const lastSeen = rec?.lastSeenDate || '-';
+
+    const el = document.createElement('div');
+    el.className = 'card ' + (missing ? 'missing' : '');
+    el.innerHTML = `
+      <div><b>${code}</b></div>
+      <div>${b.title}</div>
+      <div class="meta">最終確認: ${lastSeen}</div>
+    `;
+    root.appendChild(el);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棚一覧</title>
+<style>
+body { margin:0; font-family:sans-serif; background:#f5f5f5; }
+header { background:#333; color:#fff; padding:12px; text-align:center; }
+.container { padding:12px; }
+.card { background:#fff; margin:8px 0; padding:12px; border-radius:8px; }
+button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
+.meta { font-size:12px; color:#666; }
+</style>
+</head>
+<body>
+<header>棚一覧</header>
+<div class="container" id="root">読み込み中...</div>
+
+<script src="./common.js"></script>
+<script id="shelf_js_001">
+(async function init(){
+  const { BOOKS, SHELVES } = await loadBooksCSV();
+  const shelfLast = loadJSON(LS_KEYS.SHELF_LAST, {});
+
+  const root = document.getElementById('root');
+  root.innerHTML = '<h3>棚一覧</h3>';
+
+  Object.keys(SHELVES).forEach(shelf => {
+    const d = shelfLast[shelf] || '未実施';
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `
+      <b>${shelf}</b>
+      <div class="meta">最終棚卸し日: ${d}</div>
+      <button>開く</button>
+    `;
+    el.querySelector('button').onclick = () => goTo('books.html', { shelf });
+    root.appendChild(el);
+  });
+})();
+</script>
+</body>
+</html>
