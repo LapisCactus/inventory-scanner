@@ -73,3 +73,12 @@ function isMissingForShelf(code, shelf, inventory, shelfLast) {
   const rec = inventory[code];
   return !rec || rec.lastSeenDate !== lastScan;
 }
+
+// ====== 棚卸し状態クリア ======
+function clearInventory() {
+  if (confirm('棚卸し状態をクリアしますか？')) {
+    localStorage.removeItem(LS_KEYS.INVENTORY);
+    localStorage.removeItem(LS_KEYS.SHELF_LAST);
+    alert('クリアしました。');
+  }
+}
