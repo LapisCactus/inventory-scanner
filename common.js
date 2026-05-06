@@ -42,6 +42,32 @@ async function loadBooksCSV() {
   return { BOOKS, SHELVES };
 }
 
+// ====== 設定読込 ======
+const DEFAULT_CONFIG = {
+  graceDays: 14
+};
+
+async function loadConfigCSV() {
+  try {
+    const res = await fetch('./config.csv', { cache: 'no-store' });
+    if (!res.ok) throw new Error('config fetch failed');
+    const text = await res.text();
+    const lines = text.trim().split(/\r?\n/);
+
+    const cfg = { ...DEFAULT_CONFIG };
+
+    for (let i = 1; i < lines.length; i++) {
+      const [key, value] = lines[i].split(',');
+      if (!key) continue;
+      cfg[key.trim()] = isNaN(value) ? value.trim() : Number(value);
+    }
+    return cfg;
+  } catch {
+    // フォールバック
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
 // ====== localStorage ヘルパ ======
 function loadJSON(key, fallback = {}) {
   try {
@@ -67,11 +93,26 @@ function goTo(path, params = {}) {
 }
 
 // ====== ドメインロジック ======
-function isMissingForShelf(code, shelf, inventory, shelfLast) {
+function diffDays(dateStr1, dateStr2) {
+  if (!dateStr1 || !dateStr2) return Infinity;
+
+  const d1 = new Date(dateStr1);
+  const d2 = new Date(dateStr2);
+
+  const ms = d1 - d2;
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function isMissingForShelf(code, shelf, inventory, shelfLast, config) {
   const lastScan = shelfLast[shelf];
-  if (!lastScan) return false; // 未実施なら欠品表示しない
+  if (!lastScan) return false;
+
   const rec = inventory[code];
-  return !rec || rec.lastSeenDate !== lastScan;
+  if (!rec) return true;
+
+  const days = diffDays(lastScan, rec.lastSeenDate);
+
+  return days > config.graceDays;
 }
 
 // ====== 棚卸し状態クリア ======
