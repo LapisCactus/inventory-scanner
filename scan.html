@@ -121,7 +121,9 @@ video { width:100%; border-radius:8px; }
 
   function renderList(){
     listEl.innerHTML = '';
-    scanResults.forEach((b, code)=>{
+    const entries = Array.from(scanResults.entries()).reverse();
+
+    entries.forEach(([code, b])=>{
       const div = document.createElement('div');
       div.className = 'item';
       div.innerHTML = `<b>${code}</b><br>${b.title}`;
@@ -130,98 +132,13 @@ video { width:100%; border-radius:8px; }
     countEl.textContent = scanResults.size;
   }
 
-  function stopStream(stream){
-    if (!stream) return;
-    stream.getTracks().forEach(track => track.stop());
-  }
-
-  async function selectBackCameraDeviceId(){
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      throw new Error('MediaDevices API が利用できません');
-    }
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === 'videoinput');
-    if (!videoDevices.length) throw new Error('カメラが見つかりません');
-
-    const backCamera = videoDevices.find(d => /back|rear|environment/i.test(d.label));
-    if (backCamera) return backCamera.deviceId;
-
-    try {
-      const tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: 'environment' } } });
-      const track = tempStream.getVideoTracks()[0];
-      const deviceId = track?.getSettings()?.deviceId;
-      stopStream(tempStream);
-      if (deviceId) return deviceId;
-    } catch (_){
-      // フォールバックする
-    }
-
-    return videoDevices[0].deviceId;
-  }
-
-  async function applyVideoFocus(track){
-    if (!track || typeof track.applyConstraints !== 'function') return;
-    try {
-      const caps = track.getCapabilities ? track.getCapabilities() : {};
-      const advanced = [];
-      if (caps.focusMode?.includes('continuous')) {
-        advanced.push({ focusMode: 'continuous' });
-      }
-      if (caps.pointsOfInterest) {
-        advanced.push({ pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
-      }
-      if (advanced.length) {
-        await track.applyConstraints({ advanced });
-      }
-    } catch (err) {
-      console.warn('フォーカス制約に失敗しました', err);
-    }
-  }
-
-  async function setupCamera(){
-    const deviceId = await selectBackCameraDeviceId();
-    video.playsInline = true;
-
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          deviceId: { exact: deviceId },
-          facingMode: { exact: 'environment' }
-        }
-      });
-    } catch (err) {
-      console.warn('deviceId + facingMode による取得に失敗しました。deviceId のみで再試行します。', err);
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { deviceId: { exact: deviceId } }
-      });
-    }
-
-    video.srcObject = stream;
-    await video.play();
-    await applyVideoFocus(stream.getVideoTracks()[0]);
-  }
-
   function loop(){
-    reader.decodeFromVideoElementContinuously(video, (res)=>{
+    reader.decodeFromVideoDevice(null, video, (res)=>{
       if(res){
         reader.reset();
         handle(res.getText());
       }
     });
-  }
-
-  async function startScan(){
-    try {
-      await setupCamera();
-      loop();
-    } catch (err) {
-      alert('カメラの初期化に失敗しました: ' + err.message);
-      console.error(err);
-    }
   }
 
   function handle(code){
@@ -260,7 +177,7 @@ video { width:100%; border-radius:8px; }
     goTo('books.html', { shelf });
   };
 
-  startScan();
+  loop();
 
 })();
 </script>
