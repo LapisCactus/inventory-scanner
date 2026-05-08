@@ -109,14 +109,45 @@ video { width:100%; border-radius:8px; }
     ZXing.BarcodeFormat.CODE_39,
     ZXing.BarcodeFormat.CODE_128
   ]);
-  const reader = new ZXing.BrowserMultiFormatReader(hints);
 
+  const reader = new ZXing.MultiFormatReader();
+  reader.setHints(hints);
+
+  // ===== カメラ開始（1回のみ）=====
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: 'environment' },
+
+      // 省電力
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+
+      // FPS制限
+      frameRate: { ideal: 10, max: 15 }
+    },
+    audio: false
+  });
+
+  video.srcObject = stream;
+  video.playsInline = true;
+  await video.play();
+
+  // decode用canvas
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', {
+    willReadFrequently: true
+  });
+
+  let decoding = false;
+  let coolingDown = false;
+ 
   let scanResults = new Map(); // code -> book
 
   function showToast(msg){
     toastEl.textContent = msg;
     toastEl.classList.add('show');
-    setTimeout(()=>toastEl.classList.remove('show'), 1200);
+    setTimeout(()=>toastEl.classList.remove('show'), 1800);
   }
 
   function renderList(){
@@ -132,21 +163,79 @@ video { width:100%; border-radius:8px; }
     countEl.textContent = scanResults.size;
   }
 
-  function loop(){
-    reader.decodeFromVideoDevice(null, video, (res)=>{
-      if(res){
-        reader.reset();
-        handle(res.getText());
+  // ===== 100msごとにdecode =====
+
+  async function scanFrame(){
+
+    if(decoding || coolingDown) return;
+    decoding = true;
+
+    try{
+
+      if(
+        video.readyState < 2 ||
+        video.videoWidth === 0
+      ){
+        return;
       }
-    });
+
+      const sw = video.videoWidth;
+      const sh = video.videoHeight;
+
+      // 中央50%だけdecode
+      const cropW = sw * 0.5;
+      const cropH = sh * 0.5;
+
+      const sx = (sw - cropW) / 2;
+      const sy = (sh - cropH) / 2;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      ctx.drawImage(
+        video,
+        sx,
+        sy,
+        cropW,
+        cropH,
+        0,
+        0,
+        cropW,
+        cropH
+      );
+
+      const result = reader.decode(
+        new ZXing.BinaryBitmap(
+          new ZXing.HybridBinarizer(
+            new ZXing.HTMLCanvasElementLuminanceSource(canvas)
+          )
+        )
+      );
+
+      if(result){
+        handle(result.getText());
+      }
+
+    }catch(err){
+
+      // NotFoundExceptionは無視
+
+    }finally{
+      decoding = false;
+    }
   }
 
+  const intervalId = setInterval(
+    scanFrame,
+    100
+  );
+  
   function handle(code){
     const b = BOOKS[code];
 
     if(!b){
       showToast('未登録コード');
-      return loop();
+      return;
     }
 
     if(scanResults.has(code)){
@@ -155,9 +244,9 @@ video { width:100%; border-radius:8px; }
       scanResults.set(code, b);
       renderList();
       showToast(`${b.title}`);
+      coolingDown = true;
+      setTimeout(() => coolingDown = false, 1800);
     }
-
-    loop();
   }
 
   // 棚卸し確定
@@ -173,11 +262,13 @@ video { width:100%; border-radius:8px; }
     saveJSON(LS_KEYS.INVENTORY, inventory);
     saveJSON(LS_KEYS.SHELF_LAST, shelfLast);
 
-    reader.reset();
+    clearInterval(intervalId);
+
+    // カメラ停止
+    stream.getTracks().forEach(t=>t.stop());
+
     goTo('books.html', { shelf });
   };
-
-  loop();
 
 })();
 </script>
