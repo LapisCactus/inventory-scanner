@@ -123,3 +123,21 @@ function clearInventory() {
     alert('クリアしました。');
   }
 }
+
+// ====== CSV生成 & ダウンロード ======
+function generateCSV(data) {
+  // data: [['header1', 'header2'], ['val1', 'val2'], ...]
+  return data.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+}
+
+function downloadCSV(csvContent, filename) {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

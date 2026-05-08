@@ -34,10 +34,25 @@ button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
   const root = document.getElementById('root');
   root.innerHTML = `
     <button id="scanBtn">棚卸し開始</button>
+    <button id="csvBtn">CSV出力</button>
     <button id="backBtn">戻る</button>
   `;
 
   document.getElementById('scanBtn').onclick = () => goTo('scan.html', { shelf });
+  document.getElementById('csvBtn').onclick = () => {
+    const data = [['code', 'name', '◯☓', 'date_seen']];
+    (SHELVES[shelf] || []).forEach(code => {
+      const b = BOOKS[code];
+      const rec = inventory[code];
+      const missing = isMissingForShelf(code, shelf, inventory, shelfLast, config);
+      const status = missing ? '☓' : '◯';
+      const dateSeen = rec?.lastSeenDate || '-';
+      data.push([code, b.title, status, dateSeen]);
+    });
+    const csvContent = '\ufeff' + generateCSV(data);
+    const filename = `棚卸し_${shelf}_${todayStr()}.csv`;
+    downloadCSV(csvContent, filename);
+  };
   document.getElementById('backBtn').onclick = () => goTo('shelf.html');
 
   (SHELVES[shelf] || []).forEach(code => {
