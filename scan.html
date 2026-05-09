@@ -15,7 +15,14 @@ header { background:#333; color:#fff; padding:12px; text-align:center; }
   height:calc(100vh - 56px);
 }
 
-.left, .right {
+.left {
+  width:50%;
+  padding:8px;
+  box-sizing:border-box;
+  position:relative;
+}
+
+.right {
   width:50%;
   padding:8px;
   box-sizing:border-box;
@@ -61,6 +68,15 @@ video { width:100%; border-radius:8px; }
   transition:opacity 0.3s;
 }
 .toast.show { opacity:1; }
+
+.crop-frame {
+  position:absolute;
+  border:3px solid red;
+  box-sizing:border-box;
+  pointer-events:none;
+  top:0;
+  left:0;
+}
 </style>
 </head>
 
@@ -72,6 +88,7 @@ video { width:100%; border-radius:8px; }
   <!-- 左：カメラ -->
   <div class="left">
     <video id="video"></video>
+    <div class="crop-frame"></div>
   </div>
 
   <!-- 右：リスト -->
@@ -224,6 +241,34 @@ video { width:100%; border-radius:8px; }
       decoding = false;
     }
   }
+
+  const cropFrame = document.querySelector('.crop-frame');
+
+  // 赤枠をカメラ映像に合わせて配置
+  function updateCropFrame(){
+    const videoRect = video.getBoundingClientRect();
+    const leftDiv = document.querySelector('.left');
+    const leftRect = leftDiv.getBoundingClientRect();
+
+    // leftコンテナ内での相対座標に変換
+    const relativeTop = videoRect.top - leftRect.top;
+    const relativeLeft = videoRect.left - leftRect.left;
+
+    const cropSize = 0.5; // 50%
+    const offset = (1 - cropSize) / 2; // 25%
+    const padding = 8;
+
+    cropFrame.style.top = (videoRect.height * offset + padding) + 'px';
+    cropFrame.style.left = (videoRect.width * offset + padding) + 'px';
+    cropFrame.style.width = (videoRect.width * cropSize) + 'px';
+    cropFrame.style.height = (videoRect.height * cropSize) + 'px';
+  }
+
+  // 初回と動画再生時に更新
+  updateCropFrame();
+  video.addEventListener('loadedmetadata', updateCropFrame);
+  video.addEventListener('play', updateCropFrame);
+  window.addEventListener('resize', updateCropFrame);
 
   const intervalId = setInterval(
     scanFrame,
