@@ -141,3 +141,33 @@ function downloadCSV(csvContent, filename) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+async function shareCSV(csvContent, filename, title = '', text = '') {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const file = new File([blob], filename, { type: 'text/csv;charset=utf-8;' });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title, text });
+      return true;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return false;
+      }
+      console.warn('CSV share failed:', error);
+    }
+  }
+
+  downloadCSV(csvContent, filename);
+  return false;
+}
+
+// ====== ストレージ使用量計算 ======
+function calculateStorageUsage() {
+  const inventory = loadJSON(LS_KEYS.INVENTORY);
+  const shelfLast = loadJSON(LS_KEYS.SHELF_LAST);
+  const inventorySize = new Blob([JSON.stringify(inventory)]).size;
+  const shelfLastSize = new Blob([JSON.stringify(shelfLast)]).size;
+  const totalSize = inventorySize + shelfLastSize;
+  return { inventorySize, shelfLastSize, totalSize };
+}

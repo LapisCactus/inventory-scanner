@@ -95,6 +95,7 @@
     <div class="buttons">
       <a href="shelf.html" class="button">棚一覧へ</a>
       <button class="button secondary" onclick="clearInventory()">棚卸し状態をクリア</button>
+      <button class="button secondary" onclick="showStorageUsage()">ストレージ使用量確認</button>
     </div>
   </div>
 
@@ -105,6 +106,12 @@
 </footer>
 
 <script src="common.js"></script>
+<script>
+function showStorageUsage() {
+  const usage = calculateStorageUsage();
+  alert(`Inventory: ${usage.inventorySize} bytes\nShelf Last: ${usage.shelfLastSize} bytes\nTotal: ${usage.totalSize} bytes`);
+}
+</script>
 
 </body>
 </html>
