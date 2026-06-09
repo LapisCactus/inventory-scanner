@@ -7,8 +7,9 @@
 <style>
 body { margin:0; font-family:sans-serif; background:#f5f5f5; }
 header { background:#333; color:#fff; padding:12px; text-align:center; display:flex; align-items:center; justify-content:center; position:relative; }
-.back-button { position:absolute; left:12px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:#fff; font-size:16px; cursor:pointer; width:auto; padding:0; text-align:left; }
-.back-button:hover { opacity:0.8; }
+.back-button { position:absolute; left:12px; top:50%; transform:translateY(-50%); background:gray; border:none; color:#fff; font-size:16px; cursor:pointer; width:auto; padding:4px 8px; border-radius: 8px; text-align:left; }
+.header-button { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:#3498db; border:none; color:#fff; font-size:16px; cursor:pointer; width:auto; padding:4px 8px; border-radius: 8px; text-align:right; }
+.back-button:hover, .header-button:hover { opacity:0.8; }
 .container { padding:12px; }
 .card { background:#fff; margin:8px 0; padding:12px; border-radius:8px; }
 #root button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
@@ -17,8 +18,9 @@ header { background:#333; color:#fff; padding:12px; text-align:center; display:f
 </head>
 <body>
 <header>
-  <button id="backBtn" class="back-button">＜ 戻る</button>
+  <button id="backBtn" class="back-button">←</button>
   <div>棚一覧</div>
+  <button id="shareHeaderBtn" class="header-button">結果を共有</button>
 </header>
 <div class="container" id="root">読み込み中...</div>
 
@@ -32,8 +34,7 @@ header { background:#333; color:#fff; padding:12px; text-align:center; display:f
 
   const root = document.getElementById('root');
   root.innerHTML = `
-    <button id="csvBtn">CSV出力(全体)</button>
-    <button id="shareBtn">CSV共有(全体)</button>
+    <div>棚卸しする棚を選択してください。終わったら右上の「結果を共有」ボタンでパソコン等に結果を送信できます。</div>
     <h3>棚一覧</h3>
   `;
 
@@ -65,8 +66,7 @@ header { background:#333; color:#fff; padding:12px; text-align:center; display:f
     }
   }
 
-  document.getElementById('csvBtn').onclick = () => exportAllCsv(false);
-  document.getElementById('shareBtn').onclick = () => exportAllCsv(true);
+  document.getElementById('shareHeaderBtn').onclick = () => exportAllCsv(true);
   document.getElementById('backBtn').onclick = () => goTo('index.html');
 
   Object.keys(SHELVES).forEach(shelf => {
