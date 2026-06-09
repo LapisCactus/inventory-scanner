@@ -6,16 +6,21 @@
 <title>書籍一覧</title>
 <style>
 body { margin:0; font-family:sans-serif; background:#f5f5f5; }
-header { background:#333; color:#fff; padding:12px; text-align:center; }
+header { background:#333; color:#fff; padding:12px; text-align:center; display:flex; align-items:center; justify-content:center; position:relative; }
+.back-button { position:absolute; left:12px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:#fff; font-size:16px; cursor:pointer; width:auto; padding:0; text-align:left; }
+.back-button:hover { opacity:0.8; }
 .container { padding:12px; }
 .card { background:#fff; margin:8px 0; padding:12px; border-radius:8px; }
-button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
+#root button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
 .meta { font-size:12px; color:#666; }
 .missing { color:red; }
 </style>
 </head>
 <body>
-<header id="title">書籍一覧</header>
+<header>
+  <button id="backBtn" class="back-button">＜ 戻る</button>
+  <div id="title">書籍一覧</div>
+</header>
 <div class="container" id="root">読み込み中...</div>
 
 <script src="./common.js"></script>
@@ -34,36 +39,40 @@ button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
   const root = document.getElementById('root');
   root.innerHTML = `
     <button id="scanBtn">棚卸し開始</button>
-    <button id="csvBtn">CSV出力</button>
-    <button id="shareBtn">CSV共有</button>
-    <button id="backBtn">戻る</button>
+    <button id="csvBtn">この棚のCSV出力</button>
+    <button id="shareBtn">この棚のCSV共有</button>
+    <h3>書籍一覧</h3>
   `;
 
-  document.getElementById('scanBtn').onclick = () => goTo('scan.html', { shelf });
-  document.getElementById('csvBtn').onclick = () => {
-    const data = [['code', 'name', '◯☓', 'date_seen']];
-    (SHELVES[shelf] || []).forEach(code => {
+  function buildShelfCodes() {
+    return Object.keys(BOOKS)
+      .filter(code => getCurrentShelf(code, BOOKS, inventory) === shelf)
+      .sort();
+  }
+
+  function buildCsvData() {
+    const data = [['code', 'name', 'shelf', '◯☓', 'date_seen']];
+    buildShelfCodes().forEach(code => {
       const b = BOOKS[code];
       const rec = inventory[code];
+      const currentShelf = getCurrentShelf(code, BOOKS, inventory);
       const missing = isMissingForShelf(code, shelf, inventory, shelfLast, config);
       const status = missing ? '☓' : '◯';
       const dateSeen = rec?.lastSeenDate || '-';
-      data.push([code, b.title, status, dateSeen]);
+      data.push([code, b.title, currentShelf, status, dateSeen]);
     });
+    return data;
+  }
+
+  document.getElementById('scanBtn').onclick = () => goTo('scan.html', { shelf });
+  document.getElementById('csvBtn').onclick = () => {
+    const data = buildCsvData();
     const csvContent = '\ufeff' + generateCSV(data);
     const filename = `棚卸し_${shelf}_${todayStr()}.csv`;
     downloadCSV(csvContent, filename);
   };
   document.getElementById('shareBtn').onclick = async () => {
-    const data = [['code', 'name', '◯☓', 'date_seen']];
-    (SHELVES[shelf] || []).forEach(code => {
-      const b = BOOKS[code];
-      const rec = inventory[code];
-      const missing = isMissingForShelf(code, shelf, inventory, shelfLast, config);
-      const status = missing ? '☓' : '◯';
-      const dateSeen = rec?.lastSeenDate || '-';
-      data.push([code, b.title, status, dateSeen]);
-    });
+    const data = buildCsvData();
     const csvContent = '\ufeff' + generateCSV(data);
     const filename = `棚卸し_${shelf}_${todayStr()}.csv`;
     const shared = await shareCSV(csvContent, filename, `棚卸し_${shelf}`, 'CSVを共有します');
@@ -73,11 +82,20 @@ button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
   };
   document.getElementById('backBtn').onclick = () => goTo('shelf.html');
 
-  (SHELVES[shelf] || []).forEach(code => {
+  const codes = buildShelfCodes();
+  if (codes.length === 0) {
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'card';
+    emptyEl.textContent = 'この棚に現在属する書籍はありません。';
+    root.appendChild(emptyEl);
+  }
+
+  codes.forEach(code => {
     const b = BOOKS[code];
     const rec = inventory[code];
     const missing = isMissingForShelf(code, shelf, inventory, shelfLast, config);
     const lastSeen = rec?.lastSeenDate || '-';
+    const masterLocation = b.location;
 
     const el = document.createElement('div');
     el.className = 'card ' + (missing ? 'missing' : '');
@@ -85,6 +103,7 @@ button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
       <div><b>${code}</b></div>
       <div>${b.title}</div>
       <div class="meta">最終確認: ${lastSeen}</div>
+      ${masterLocation !== shelf ? `<div class="meta">初期棚: ${masterLocation}</div>` : ''}
     `;
     root.appendChild(el);
   });

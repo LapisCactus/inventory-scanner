@@ -6,32 +6,77 @@
 <title>棚一覧</title>
 <style>
 body { margin:0; font-family:sans-serif; background:#f5f5f5; }
-header { background:#333; color:#fff; padding:12px; text-align:center; }
+header { background:#333; color:#fff; padding:12px; text-align:center; display:flex; align-items:center; justify-content:center; position:relative; }
+.back-button { position:absolute; left:12px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:#fff; font-size:16px; cursor:pointer; width:auto; padding:0; text-align:left; }
+.back-button:hover { opacity:0.8; }
 .container { padding:12px; }
 .card { background:#fff; margin:8px 0; padding:12px; border-radius:8px; }
-button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
+#root button { width:100%; padding:14px; margin-top:8px; font-size:16px; }
 .meta { font-size:12px; color:#666; }
 </style>
 </head>
 <body>
-<header>棚一覧</header>
+<header>
+  <button id="backBtn" class="back-button">＜ 戻る</button>
+  <div>棚一覧</div>
+</header>
 <div class="container" id="root">読み込み中...</div>
 
 <script src="./common.js"></script>
 <script id="shelf_js_001">
 (async function init(){
   const { BOOKS, SHELVES } = await loadBooksCSV();
+  const config = await loadConfigCSV();
   const shelfLast = loadJSON(LS_KEYS.SHELF_LAST, {});
+  const inventory = loadJSON(LS_KEYS.INVENTORY, {});
 
   const root = document.getElementById('root');
-  root.innerHTML = '<h3>棚一覧</h3>';
+  root.innerHTML = `
+    <button id="csvBtn">CSV出力(全体)</button>
+    <button id="shareBtn">CSV共有(全体)</button>
+    <h3>棚一覧</h3>
+  `;
+
+  function buildCsvData() {
+    const data = [['code', 'name', 'shelf', '◯☓', 'date_seen']];
+    Object.keys(BOOKS).sort().forEach(code => {
+      const b = BOOKS[code];
+      const currentShelf = getCurrentShelf(code, BOOKS, inventory);
+      const rec = inventory[code];
+      const missing = isMissingForShelf(code, currentShelf, inventory, shelfLast, config);
+      const status = missing ? '☓' : '◯';
+      const dateSeen = rec?.lastSeenDate || '-';
+      data.push([code, b.title, currentShelf, status, dateSeen]);
+    });
+    return data;
+  }
+
+  async function exportAllCsv(share = false) {
+    const data = buildCsvData();
+    const csvContent = '\ufeff' + generateCSV(data);
+    const filename = `棚卸し_全体_${todayStr()}.csv`;
+    if (share) {
+      const shared = await shareCSV(csvContent, filename, '棚卸し_全体', '棚卸しCSVを共有します');
+      if (!shared) {
+        alert('共有に対応していない環境のため、CSVをダウンロードしました。');
+      }
+    } else {
+      downloadCSV(csvContent, filename);
+    }
+  }
+
+  document.getElementById('csvBtn').onclick = () => exportAllCsv(false);
+  document.getElementById('shareBtn').onclick = () => exportAllCsv(true);
+  document.getElementById('backBtn').onclick = () => goTo('index.html');
 
   Object.keys(SHELVES).forEach(shelf => {
     const d = shelfLast[shelf] || '未実施';
+    const label = SHELVES[shelf]?.label || shelf;
     const el = document.createElement('div');
     el.className = 'card';
     el.innerHTML = `
-      <b>${shelf}</b>
+      <b>${label}</b>
+      <div class="meta">棚名: ${shelf}</div>
       <div class="meta">最終棚卸し日: ${d}</div>
       <button>開く</button>
     `;

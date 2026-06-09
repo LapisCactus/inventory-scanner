@@ -301,7 +301,7 @@ video { width:100%; border-radius:8px; }
     shelfLast[shelf] = today;
 
     scanResults.forEach((b, code)=>{
-      inventory[code] = { lastSeenDate: today };
+      inventory[code] = { lastSeenDate: today, shelf };
     });
 
     saveJSON(LS_KEYS.INVENTORY, inventory);

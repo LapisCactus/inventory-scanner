@@ -11,13 +11,47 @@ function todayStr() {
 }
 
 // ====== CSV読込 & パース ======
-async function loadBooksCSV() {
-  const res = await fetch('./books.csv', { cache: 'no-store' });
-  if (!res.ok) throw new Error('CSV fetch failed');
-  const text = await res.text();
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (!lines.length) return { header: [], rows: [] };
+  const header = lines[0].split(',').map(col => col.trim());
+  const rows = lines.slice(1).map(line => line.split(',').map(col => col.trim()));
+  return { header, rows };
+}
 
-  const lines = text.trim().split(/\r?\n/);
-  const header = lines[0].split(',');
+async function loadShelvesCSV() {
+  try {
+    const res = await fetch('./shelves.csv', { cache: 'no-store' });
+    if (!res.ok) throw new Error('shelves.csv fetch failed');
+    const text = await res.text();
+    const { header, rows } = parseCSV(text);
+    const idx = {
+      shelf: header.indexOf('shelf'),
+      label: header.indexOf('label')
+    };
+
+    const SHELVES = {};
+    for (const cols of rows) {
+      const shelf = cols[idx.shelf]?.trim();
+      if (!shelf) continue;
+      const label = cols[idx.label]?.trim() || shelf;
+      SHELVES[shelf] = { label };
+    }
+    return SHELVES;
+  } catch {
+    return {};
+  }
+}
+
+async function loadBooksCSV() {
+  const [bookRes, shelves] = await Promise.all([
+    fetch('./books.csv', { cache: 'no-store' }),
+    loadShelvesCSV()
+  ]);
+  if (!bookRes.ok) throw new Error('CSV fetch failed');
+  const text = await bookRes.text();
+
+  const { header, rows } = parseCSV(text);
   const idx = {
     code: header.indexOf('code'),
     title: header.indexOf('title'),
@@ -25,21 +59,26 @@ async function loadBooksCSV() {
   };
 
   const BOOKS = {};
-  const SHELVES = {};
+  const SHELVES = { ...shelves };
 
-  for (let i = 1; i < lines.length; i++) {
-    // 簡易パース（カンマ含む場合は未対応）
-    const cols = lines[i].split(',');
+  for (const cols of rows) {
     const code = cols[idx.code]?.trim();
     const title = cols[idx.title]?.trim();
     const location = cols[idx.location]?.trim();
     if (!code) continue;
 
     BOOKS[code] = { title, location };
-    if (!SHELVES[location]) SHELVES[location] = [];
-    SHELVES[location].push(code);
+    if (!SHELVES[location]) {
+      SHELVES[location] = { label: location };
+    }
   }
   return { BOOKS, SHELVES };
+}
+
+function getCurrentShelf(code, BOOKS, inventory) {
+  const rec = inventory[code];
+  if (rec?.shelf) return rec.shelf;
+  return BOOKS[code]?.location || '';
 }
 
 // ====== 設定読込 ======
