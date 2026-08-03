@@ -12,11 +12,65 @@ function todayStr() {
 
 // ====== CSV読込 & パース ======
 function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
-  if (!lines.length) return { header: [], rows: [] };
-  const header = lines[0].split(',').map(col => col.trim());
-  const rows = lines.slice(1).map(line => line.split(',').map(col => col.trim()));
-  return { header, rows };
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  const pushField = () => {
+    row.push(field.trim());
+    field = '';
+  };
+
+  const pushRow = () => {
+    if (row.length > 0) {
+      rows.push(row);
+      row = [];
+    }
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === ',' && !inQuotes) {
+      pushField();
+      continue;
+    }
+
+    if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      if (ch === '\r' && text[i + 1] === '\n') {
+        i++;
+      }
+      pushField();
+      pushRow();
+      continue;
+    }
+
+    field += ch;
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    pushField();
+    pushRow();
+  }
+
+  const nonEmptyRows = rows.filter(r => r.some(cell => cell.trim().length > 0));
+  if (!nonEmptyRows.length) return { header: [], rows: [] };
+
+  return {
+    header: nonEmptyRows[0].map(col => col.trim()),
+    rows: nonEmptyRows.slice(1).map(cols => cols.map(col => col.trim()))
+  };
 }
 
 async function loadShelvesCSV() {
