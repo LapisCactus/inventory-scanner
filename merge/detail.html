@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f2f7f6">
+  <title>未スキャン候補 | 棚卸しCSV統合</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="./summary.html"><span class="brand-mark">▤</span><span>棚卸しCSV統合<small>INVENTORY MERGE & ANALYSIS</small></span></a>
+  <a class="header-link" href="./summary.html">集計結果へ</a>
+</header>
+<main class="wrap" id="main" hidden>
+  <section class="hero">
+    <div class="eyebrow">Step 03 · Review</div>
+    <h1>未スキャン候補</h1>
+    <p id="periodText"></p>
+  </section>
+
+  <section class="notice"><strong>確認候補であり、紛失の確定ではありません。</strong><br>貸出中・棚卸しの実施漏れ・紛失のいずれもあり得ます。期間中に対象棚のCSVが揃っていない場合、実際には確認済みの本が候補に含まれることがあります。</section>
+
+  <section class="card">
+    <div class="control-row" style="justify-content:space-between;align-items:center">
+      <div><h2 style="margin:0">候補一覧 <span class="pill" id="resultCount"></span></h2><p class="hint" style="margin:5px 0 0">コード・書名・棚で検索できます。棚履歴から過去の確認状況を参照できます。</p></div>
+      <button id="downloadBtn" class="btn" type="button">一覧CSVをダウンロード</button>
+    </div>
+    <div class="field" style="margin:20px 0 13px"><label for="searchInput">一覧を検索</label><input id="searchInput" type="search" placeholder="コード・書名・棚" style="width:min(100%,400px)"></div>
+    <div id="resultTable" class="table-wrap"></div>
+    <p id="shownCount" class="footnote"></p>
+  </section>
+
+  <div class="actions"><a class="btn secondary" id="backLink" href="./summary.html">← 集計結果へ戻る</a></div>
+</main>
+<dialog id="historyDialog" class="dialog">
+  <div class="dialog-inner">
+    <button class="dialog-close" id="closeDialog" type="button">閉じる</button>
+    <h2 id="dialogTitle">棚履歴</h2>
+    <p>入力CSVで確認された棚と日付です。同じ棚・同じ日付の重複はまとめています。</p>
+    <div id="historyContent"></div>
+  </div>
+</dialog>
+<script src="./process.js"></script>
+<script>
+(() => {
+  const data = MergeTool.loadSession();
+  if (!data) { window.location.replace('./index.html'); return; }
+  document.getElementById('main').hidden = false;
+  const params = new URLSearchParams(window.location.search);
+  const days = Number(params.get('days')) || 30;
+  const result = MergeTool.unscannedRecords(data, days);
+  const records = result.records;
+  const search = document.getElementById('searchInput');
+  document.getElementById('periodText').textContent = `${result.window.start} 〜 ${result.window.end} の間に date_seen がない本を表示しています。`;
+  document.getElementById('resultCount').textContent = `${records.length.toLocaleString('ja-JP')} 冊`;
+  document.getElementById('backLink').href = `./summary.html?days=${encodeURIComponent(days)}`;
+
+  function render() {
+    const term = search.value.trim().toLocaleLowerCase();
+    const matched = records.filter(record => [record.code, record.name, record.shelf].some(value => String(value || '').toLocaleLowerCase().includes(term)));
+    const table = document.getElementById('resultTable');
+    if (!matched.length) {
+      table.innerHTML = `<div class="empty">${term ? '検索条件に一致する候補はありません。' : '期間内未スキャン候補はありません。'}</div>`;
+    } else {
+      table.innerHTML = `<table><thead><tr><th>コード</th><th>書名</th><th>棚</th><th>最終確認日</th><th>履歴</th></tr></thead><tbody>${matched.map((record, index) => `
+        <tr><td class="book-code">${MergeTool.escapeHTML(record.code)}</td><td>${MergeTool.escapeHTML(record.name || '（書名なし）')}</td><td>${MergeTool.escapeHTML(record.shelf || '棚指定なし')}</td><td>${MergeTool.escapeHTML(record.date_seen || '—')}</td><td><button class="small-btn" type="button" data-history="${index}">棚履歴 (${record.shelf_history.length})</button></td></tr>
+      `).join('')}</tbody></table>`;
+      table.querySelectorAll('[data-history]').forEach(button => button.addEventListener('click', () => showHistory(matched[Number(button.dataset.history)])));
+    }
+    document.getElementById('shownCount').textContent = `${matched.length.toLocaleString('ja-JP')} / ${records.length.toLocaleString('ja-JP')} 件を表示`;
+  }
+
+  function showHistory(record) {
+    document.getElementById('dialogTitle').textContent = `${record.code} · ${record.name || '書名なし'}`;
+    const history = record.shelf_history;
+    document.getElementById('historyContent').innerHTML = history.length
+      ? `<div class="table-wrap"><table><thead><tr><th>棚</th><th>確認日</th></tr></thead><tbody>${history.map(item => `<tr><td>${MergeTool.escapeHTML(item.shelf)}</td><td>${MergeTool.escapeHTML(item.date)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">この本の棚履歴はありません。</div>';
+    document.getElementById('historyDialog').showModal();
+  }
+
+  search.addEventListener('input', render);
+  document.getElementById('closeDialog').addEventListener('click', () => document.getElementById('historyDialog').close());
+  document.getElementById('historyDialog').addEventListener('click', event => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+    const output = MergeTool.unscannedCSV(data, days);
+    MergeTool.downloadCSV(output.csv, `棚卸し_未スキャン候補_${output.window.start}_${output.window.end}.csv`);
+  });
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f2f7f6">
+  <title>棚卸しCSV統合 | バーコード棚卸し</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="../index.html"><span class="brand-mark">▤</span><span>棚卸しCSV統合<small>INVENTORY MERGE & ANALYSIS</small></span></a>
+  <a class="header-link" href="../index.html">棚卸しツールへ</a>
+</header>
+<main class="wrap">
+  <section class="hero">
+    <div class="eyebrow">Step 01 · Upload</div>
+    <h1>棚卸しデータをひとつに。</h1>
+    <p>担当者から受け取ったCSVをまとめて選択してください。書籍マスターの全書籍を分析対象とし、CSVにない書籍も未確認候補に含めます。データはこのブラウザー内で処理され、既存の棚卸しデータは変更されません。</p>
+  </section>
+
+  <section class="card">
+    <h2>CSVファイルを選択</h2>
+    <p class="hint">棚卸しツールから出力したCSVを複数選択できます。UTF-8 / UTF-8 BOMに対応。</p>
+    <label class="dropzone" id="dropzone" for="filesInput">
+      <span class="drop-icon">↑</span>
+      <strong>CSVをここにドロップ</strong>
+      <span>またはクリックしてファイルを選択</span>
+      <input id="filesInput" type="file" accept=".csv,text/csv" multiple>
+    </label>
+    <div id="fileList" class="file-list"></div>
+    <div id="errorBox" class="error hidden" role="alert"></div>
+    <div class="actions">
+      <button id="mergeBtn" class="btn" type="button" disabled>読み込み・統合する <span aria-hidden="true">→</span></button>
+    </div>
+  </section>
+
+  <section class="notice">
+    <strong>ご注意</strong><br>
+    「未スキャン」は確認候補です。貸出中・作業漏れ・紛失のいずれかを確定するものではありません。CSVが揃っていない場合も結果に影響します。
+  </section>
+  <p class="footnote">読み込んだ結果はこのタブのセッション中だけ保持します。ページを閉じると破棄されます。</p>
+</main>
+<footer>ブラウザー内で処理 · サーバーへのアップロードなし</footer>
+<script src="./process.js"></script>
+<script>
+(() => {
+  const picker = document.getElementById('filesInput');
+  const list = document.getElementById('fileList');
+  const button = document.getElementById('mergeBtn');
+  const error = document.getElementById('errorBox');
+  const zone = document.getElementById('dropzone');
+  let selectedFiles = [];
+
+  function formatSize(bytes) {
+    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+  function showFiles(files) {
+    selectedFiles = [...files].filter(file => file.name.toLowerCase().endsWith('.csv'));
+    list.innerHTML = selectedFiles.map((file, index) => `
+      <div class="file-row"><span class="file-name"><span class="file-index">${MergeTool.escapeHTML(MergeTool.sourceLabel(index))}</span>${MergeTool.escapeHTML(file.name)}</span><span class="file-size">${formatSize(file.size)}</span></div>
+    `).join('');
+    button.disabled = selectedFiles.length === 0;
+    error.classList.add('hidden');
+    if (files.length && selectedFiles.length !== files.length) showError('CSVファイルのみ選択してください。');
+  }
+  function showError(message) {
+    error.textContent = message;
+    error.classList.remove('hidden');
+  }
+
+  picker.addEventListener('change', () => showFiles(picker.files));
+  ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, event => {
+    event.preventDefault();
+    zone.classList.add('dragging');
+  }));
+  ['dragleave', 'drop'].forEach(type => zone.addEventListener(type, event => {
+    event.preventDefault();
+    zone.classList.remove('dragging');
+  }));
+  zone.addEventListener('drop', event => showFiles(event.dataTransfer.files));
+
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.textContent = 'CSVを確認しています…';
+    error.classList.add('hidden');
+    try {
+      const master = await MergeTool.loadMasterData();
+      const result = await MergeTool.mergeFiles(selectedFiles, master);
+      MergeTool.saveSession(result);
+      window.location.href = './summary.html';
+    } catch (exception) {
+      showError(exception.message || 'CSVを読み込めませんでした。');
+      button.disabled = false;
+      button.innerHTML = '読み込み・統合する <span aria-hidden="true">→</span>';
+    }
+  });
+})();
+</script>
+</body>
+</html>

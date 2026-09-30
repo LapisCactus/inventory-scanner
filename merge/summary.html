@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f2f7f6">
+  <title>集計結果 | 棚卸しCSV統合</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="./index.html"><span class="brand-mark">▤</span><span>棚卸しCSV統合<small>INVENTORY MERGE & ANALYSIS</small></span></a>
+  <a class="header-link" href="./index.html">CSVを選び直す</a>
+</header>
+<main class="wrap" id="main" hidden>
+  <section class="hero">
+    <div class="eyebrow">Step 02 · Summary</div>
+    <h1>統合結果</h1>
+    <p>読み込んだCSVの重複を整理しました。コードごとに最新日付の棚を採用し、同日で棚が異なる場合は選択順で後のCSVを採用します。期間を指定して、棚ごとの確認件数と未スキャン候補を確認できます。</p>
+  </section>
+
+  <section class="card">
+    <div class="metric-grid">
+      <div class="metric"><strong id="bookCount">—</strong><span>統合した本</span></div>
+      <div class="metric"><strong id="scanCount">—</strong><span>期間内に確認した本（重複除外）</span></div>
+      <div class="metric"><strong id="missingCount">—</strong><span>期間内未スキャン候補</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>集計期間</h2>
+    <p class="hint">今日を終了日として、入力した日数分（開始日を含む）を集計します。</p>
+    <div class="control-row">
+      <div class="field"><label for="daysInput">過去の日数</label><input id="daysInput" type="number" min="1" max="3650" value="30"></div>
+      <div class="status" id="windowLabel"></div>
+      <button class="btn" id="detailBtn" type="button">未スキャン候補を見る →</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>棚ごとのスキャン件数</h2>
+    <p class="hint">期間内に確認されたコードを棚ごとに重複除外して集計しています。</p>
+    <div id="shelfTable" class="table-wrap"></div>
+  </section>
+
+  <section class="card">
+    <h2>読み込んだファイル</h2>
+    <p class="hint">統合結果CSVでは各行の出典を連番とファイル名で確認できます。</p>
+    <ul id="sourceList" class="source-list"></ul>
+  </section>
+
+  <section id="warningsCard" class="card hidden">
+    <h2>確認が必要なデータ</h2>
+    <div id="warnings"></div>
+  </section>
+
+  <section class="notice"><strong>注意</strong><br>未スキャン候補は確認対象を示すもので、紛失や行方不明を確定しません。期間中に対象棚のCSVが揃っていない可能性もあります。</section>
+  <section class="card">
+    <h2>データを書き出す</h2>
+    <p class="hint">CSVはUTF-8 BOM付きです。棚履歴・出典情報の列を含みます。</p>
+    <div class="actions">
+      <button id="exportBtn" class="btn secondary" type="button">統合結果CSVをダウンロード</button>
+      <a class="btn" id="detailLink" href="./detail.html">未スキャン一覧へ →</a>
+    </div>
+  </section>
+</main>
+<script src="./process.js"></script>
+<script>
+(() => {
+  const data = MergeTool.loadSession();
+  if (!data) { window.location.replace('./index.html'); return; }
+  document.getElementById('main').hidden = false;
+  const daysInput = document.getElementById('daysInput');
+  const detailLink = document.getElementById('detailLink');
+  const detailBtn = document.getElementById('detailBtn');
+
+  function refresh() {
+    try {
+      const days = Number(daysInput.value);
+      const summary = MergeTool.shelfCounts(data, days);
+      const notScanned = MergeTool.unscannedRecords(data, days);
+      document.getElementById('bookCount').textContent = data.records.length.toLocaleString('ja-JP');
+      document.getElementById('scanCount').textContent = summary.scannedCount.toLocaleString('ja-JP');
+      document.getElementById('missingCount').textContent = notScanned.records.length.toLocaleString('ja-JP');
+      document.getElementById('windowLabel').textContent = `${summary.window.start} 〜 ${summary.window.end}`;
+      const rows = summary.counts.length ? summary.counts.map(([shelf, count]) => `<tr><td>${MergeTool.escapeHTML(shelf)}</td><td class="right">${count.toLocaleString('ja-JP')} 冊</td></tr>`).join('') : '<tr><td colspan="2" class="empty">この期間内のスキャン記録はありません。</td></tr>';
+      document.getElementById('shelfTable').innerHTML = `<table><thead><tr><th>棚</th><th class="right">スキャン件数</th></tr></thead><tbody>${rows}</tbody></table>`;
+      detailLink.href = `./detail.html?days=${encodeURIComponent(days)}`;
+      detailBtn.onclick = () => { window.location.href = detailLink.href; };
+      detailBtn.disabled = false;
+      detailLink.removeAttribute('aria-disabled');
+      daysInput.setCustomValidity('');
+    } catch (error) {
+      document.getElementById('windowLabel').textContent = error.message;
+      daysInput.setCustomValidity(error.message);
+      detailBtn.disabled = true;
+      detailLink.href = '#';
+      detailLink.setAttribute('aria-disabled', 'true');
+    }
+  }
+  daysInput.addEventListener('input', refresh);
+  detailLink.addEventListener('click', event => {
+    if (!daysInput.checkValidity()) event.preventDefault();
+  });
+  refresh();
+
+  document.getElementById('sourceList').innerHTML = data.sources.map(source => `<li><span class="file-index">${MergeTool.escapeHTML(source.label)}</span>${MergeTool.escapeHTML(source.name)} <span>(${source.rows.toLocaleString('ja-JP')}行)</span></li>`).join('');
+  const warnings = [];
+  if (data.stats.unknownCodes.length) warnings.push(`書籍マスターにないコードが${data.stats.unknownCodes.length}件あります（統合結果には残しています）。例: ${data.stats.unknownCodes.slice(0, 8).map(MergeTool.escapeHTML).join(', ')}`);
+  if (data.stats.unknownShelves.length) warnings.push(`棚マスターにない棚名があります: ${data.stats.unknownShelves.map(MergeTool.escapeHTML).join('、')}`);
+  if (data.stats.duplicateMasterCodes) warnings.push(`書籍マスター内に重複コードが${data.stats.duplicateMasterCodes}件あります。マスターの後の行を採用しました。`);
+  if (warnings.length) {
+    document.getElementById('warningsCard').classList.remove('hidden');
+    document.getElementById('warnings').innerHTML = `<div class="notice">${warnings.map(text => `<p>${text}</p>`).join('')}</div>`;
+  }
+
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    MergeTool.downloadCSV(MergeTool.toCSV(MergeTool.exportRows(data)), `棚卸し_統合結果_${MergeTool.localToday()}.csv`);
+  });
+})();
+</script>
+</body>
+</html>
